@@ -13,48 +13,102 @@ if(!require(xlsx)){install.packages("xlsx")}
 
 ##################### tanaraki ##################### 
 
+
 # Data set
+
 Data <- read_delim("Tanaraki_nao.csv", delim = ";", trim_ws = TRUE) # importation des data avec red_delim te permet d'avoir directement les variables au bon format
+Data <- data.frame(Data) # to simplify the df. cfr without attr
 Data$Month <- factor(Data$Month, levels=c(1,2,3,4,5,6,7,8,9,10,11,12), labels=c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sept","Oct","Nov","Dec"))
 
+
 # Data summary
+
 summary(Data)
-boxplot(Temp~Week, data = Data)
-boxplot(Temp~Month, data = Data)
+
+Data$Year.Week <- paste(Data$Year, Data$Week, sep = ".")
+Data$Year.Week  <- factor(Data$Year.Week, levels = unique(Data$Year.Week))
+Y.W.levels <- unique(Data$Year.Week)
+
+# boxplot(Temp~Week, data = Data) # wrong
+boxplot(Data$Temp ~ Data$Year.Week, levels = Y.W.levels)
+
+Data$Year.Month <- paste(Data$Year, Data$Month, sep = ".")
+Data$Year.Month  <- factor(Data$Year.Month, levels = unique(Data$Year.Month))
+Y.M.levels <- unique(Data$Year.Month)
+
+# boxplot(Temp~Month, data = Data)
+boxplot(Data$Temp ~ Data$Year.Month, levels = Y.M.levels)
+
 
 # Mean temperature : daily, weekly, monthly
-temp_week <- Data %>% group_by(Year,Week) %>% summarize(Temp_week = mean(Temp, na.rm=T), sd.Temp_week = sd(Temp, na.rm=T), nb = n())
-Tmin.week <- round(min(temp_week$Temp_week), digits = 2)
-Tmax.week <- round(max(temp_week$Temp_week), digits = 2)
+
+temp_week <- Data %>% group_by(Year, Week) %>% summarize(Temp_week = mean(Temp, na.rm = T), sd.Temp_week = sd(Temp, na.rm = T), nb = n())
+
+# wrong: who do you want to filter if you round your data to 2 decimals ?? your result then in subset will be nothing
+#Tmin.week <- round(min(temp_week$Temp_week), digits = 2)
+#Tmax.week <- round(max(temp_week$Temp_week), digits = 2)
+Tmin.week <- min(temp_week$Temp_week)
+Tmax.week <- max(temp_week$Temp_week)
+
 subset(temp_week, Temp_week == Tmin.week, c(Year,Week,Temp_week))
 subset(temp_week, Temp_week == Tmax.week, c(Year,Week,Temp_week))
+
 temp_month <- Data %>% group_by(Year,Month) %>% summarize(Temp_month = mean(Temp, na.rm=T), sd.Temp_month = sd(Temp, na.rm=T), nb = n())
-Tmin.month <- round(min(temp_month$Temp_month), digits = 2)
-Tmax.month <- round(max(temp_month$Temp_month), digits = 2)
+
+# wrong: idem
+#Tmin.month <- round(min(temp_month$Temp_month), digits = 2)
+#Tmax.month <- round(max(temp_month$Temp_month), digits = 2)
+Tmin.month <- min(temp_month$Temp_month)
+Tmax.month <- max(temp_month$Temp_month)
+
 subset(temp_month, Temp_month == Tmin.month, c(Year,Month,Temp_month))
 subset(temp_month, Temp_month == Tmax.month, c(Year,Month,Temp_month))
 
+
 # DATA SETTING for analysis
+
 Moy_Temp_mens <- round(mean(temp_week$Temp_week),1)
+# or
+round(mean(Data$Temp),1) # ask your colleagues
+
 Temp_critique <- 29.2 # a revoir pour cette valeur 
 temp_week$Temp_anomaly <- round(temp_week$Temp_week - Temp_critique,1)
+
 #saveRDS(temp_week,"Results/resultats.rds")
 #write.csv2(temp_week, file = "MyData.csv",sep="\t", dec=".")
 
+
 # Bleaching threshold operation : DHW
+
 # 1. Replace negative value by 0
 temp_week$SetValue <- ifelse(temp_week$Temp_anomaly<0, 0, temp_week$Temp_anomaly)
+
 # 2. Start adding anomalies when reaching the first temp_anomaly >= 1
-seuil <- temp_week[temp_week$Temp_anomaly>=1,]
-GoForIT <- unique(rbind(seuil[1,],temp_week[-c(1:6),]))
+#seuil <- temp_week[temp_week$Temp_anomaly>=1,]
+#GoForIT <- unique(rbind(seuil[1,],temp_week[-c(1:6),]))
+# the c(1:6) will always change from one df to another, so not correct to write it this way !!
+# see below proper way to filter for first temp anomaly >= 1
+temp_week$obs <- 1:length(temp_week$Temp_anomaly)
+(temp_week[temp_week$Temp_anomaly >= 1,])[1,]
+(temp_week[temp_week$Temp_anomaly >= 1,])[1,"obs"]
+temp_week %>% filter(obs >= 7) -> GoForIT
+
+
+
+###########################################################
+
+
+# From here below I do not know what you want to do. You do a cumsum, but then the script is not ok, and your loop fails to return a result ... I guesss you are not finished here
+
+
 # 3. Creating a "somme glissante", so the DHW is based on 12 weeks anomalies temperatures
 GoForIT$DHW <- cumsum(GoForIT$SetValue) # addition glissante
+
+# what are these lines for? an example you have to delete? 
 filter(x, rep(1, n))[-c(1, length(x))]
 GoForIT %>%
   filter(SetValue[c(1:11),]) %>%
   mutate(DHW <- cumsum(SetValue))
-
-
 GoForIT$DHW <- aggregate(GoForIT[c(1:12),by = list(GoForIT$DHW),c("SetValue")], FUN = cumsum) 
 
 
@@ -72,6 +126,7 @@ for (i in 1:nrow(DHW)) {
 GoForIT %>%
   group_by(SetValue) %>%
   mutate(roll_sum = rollapply(GoForIT$SetValue, 12, sum))
+
 # A tester
 #rollsum()
 #DHW <- rollapply(GoForIT$SetValue, 12, sum)
